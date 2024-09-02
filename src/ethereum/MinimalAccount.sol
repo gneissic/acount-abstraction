@@ -10,14 +10,37 @@ import {SIG_VALIDATION_FAILED, SIG_VALIDATION_SUCCESS} from "../../lib/account-a
 import {IEntryPoint} from "../../lib/account-abstraction/contracts/interfaces/IEntryPoint.sol";
 
 contract MinimalAccount is IAccount, Ownable {
-    address private immutable i_entryPoint;
+    error MinimalAccount__NotFromEntryPoint();
+    error MinimalAccount__notFromEntryPointOrOwner();
+    error MinimalAccount__failedToExecute(bytes);
 
-    modifier requireFromEntryPoint(){
-        if(msg.sender != address(i_entryPoint))
+    IEntryPoint private immutable i_entryPoint;
+
+    modifier requireFromEntryPoint() {
+        if (msg.sender != address(i_entryPoint)) {
+            revert MinimalAccount__NotFromEntryPoint();
+        }
+        _;
+    }
+
+    modifier notEntryPointOrOwner() {
+        if (msg.sender != address(i_entryPoint) && msg.sender != owner()) {
+            revert MinimalAccount__notFromEntryPointOrOwner();
+        }
+        _;
     }
 
     constructor(address enteryPoint) Ownable(msg.sender) {
         i_entryPoint = IEntryPoint(enteryPoint);
+    }
+
+    receive() external payable {}
+
+    function execute(address dest, uint256 value, bytes calldata functionData) external notEntryPointOrOwner {
+        (bool success, bytes memory result) = dest.call{value: value}(functionData);
+        if (!success) {
+            revert MinimalAccount__failedToExecute(result);
+        }
     }
 
     function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, uint256 missingAccountFunds)
@@ -46,5 +69,9 @@ contract MinimalAccount is IAccount, Ownable {
             (bool success,) = payable(msg.sender).call{value: missingAccountFunds, gas: type(uint256).max}("");
             (success);
         }
+    }
+
+    function getEntryPoint() public view returns (address) {
+        return address(i_entryPoint);
     }
 }
